@@ -4,6 +4,8 @@ GridOpt is an educational microgrid planning demonstrator. It compares a no-stor
 
 ![GridOpt dashboard screenshot](docs/screenshot.png)
 
+[Mobile workflow screenshot](docs/screenshots/mobile.png)
+
 ## Run locally
 
 Requirements: Node.js 22 or newer.

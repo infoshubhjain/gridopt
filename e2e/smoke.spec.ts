@@ -10,6 +10,7 @@ test('demo → edit settings → compare → export', async ({ page }) => {
   await page.getByRole('button', { name: 'Overview', exact: true }).first().click();
   await page.getByRole('button', { name: 'Run comparison' }).click();
   await expect(page.getByText('Independent physics check passed')).toBeVisible();
+  await expect(page.locator('.sensitivity [role="status"]')).toHaveText(/MILP costs appear only/);
   await expect(page.getByText('$', { exact: false }).first()).toBeVisible();
   await page.screenshot({ path: 'docs/screenshot.png', fullPage: true });
   const downloadEvent = page.waitForEvent('download');
@@ -25,5 +26,9 @@ test('mobile layout and keyboard can run the comparison', async ({ page }) => {
   await run.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByText('Independent physics check passed')).toBeVisible();
+  await expect(page.locator('.sensitivity [role="status"]')).toHaveText(/MILP costs appear only/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: 'docs/screenshots/mobile.png', fullPage: true });
+  await page.setViewportSize({ width: 720, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= 720)).toBe(true);
 });
