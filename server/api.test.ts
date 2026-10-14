@@ -22,7 +22,14 @@ test('health, seeded demo, and scenario API work without credentials', async () 
   assert.match(String(demo.name), /synthetic/i);
   const response = await fetch(`${base}/api/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(demo) });
   assert.equal(response.status, 200);
-  assert.equal((await response.json() as { verified:boolean }).verified, true);
+  const result = await response.json() as { verified:boolean; strategies:Record<string,unknown>; optimization:{status:string;verified:boolean} };
+  assert.equal(result.verified, true);
+  assert.equal(result.optimization.status, 'Optimal');
+  assert.equal(result.optimization.verified, true);
+  assert.ok(result.strategies.optimized);
+  const sensitivity = await fetch(`${base}/api/sensitivity`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenario: demo }) });
+  assert.equal(sensitivity.status, 200);
+  assert.equal((await sensitivity.json() as { costs:number[] }).costs.length, 3);
 });
 
 test('invalid scenarios and missing EIA credentials fail explicitly', async () => {

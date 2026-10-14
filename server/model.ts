@@ -26,6 +26,17 @@ export type IntervalResult = {
   dischargeKW: number; socKWh: number; importKW: number; exportKW: number; curtailmentKW: number;
   unmetKW: number; cost: number;
 };
+export type StrategySummary = {
+  intervals: IntervalResult[]; totalCost: number; inventoryAdjustment: number;
+  adjustedCost: number; importedKWh: number; exportedKWh: number;
+  curtailedKWh: number; unmetKWh: number; finalSocKWh: number;
+};
+export type RunResult = {
+  scenario: Scenario; objective: string;
+  strategies: { baseline: StrategySummary; ruleBased: StrategySummary; optimized?: StrategySummary };
+  verified: boolean; tolerance: string;
+  optimization?: { status: string; runtimeMs: number; verified: boolean };
+};
 
 export function validateScenario(raw: unknown): Scenario {
   const scenario = scenarioSchema.parse(raw);
@@ -70,7 +81,7 @@ function dispatch(s: Scenario, strategy: Strategy): IntervalResult[] {
   });
 }
 
-export function runScenario(s: Scenario) {
+export function runScenario(s: Scenario): RunResult {
   const baseline = dispatch(s, 'baseline');
   const ruleBased = dispatch(s, 'ruleBased');
   const check = (rows: IntervalResult[]) => rows.every((r, i) => {

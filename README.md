@@ -1,6 +1,6 @@
 # GridOpt
 
-GridOpt is an educational microgrid planning demonstrator. It compares a no-storage baseline with a transparent rule-based battery dispatch heuristic using the same hourly or subhourly scenario. It does not control grid equipment, submit market offers, or provide engineering or investment recommendations.
+GridOpt is an educational microgrid planning demonstrator. It compares a no-storage baseline, a transparent heuristic, and a constrained battery optimizer using the same hourly or subhourly scenario. It does not control grid equipment, submit market offers, or provide engineering or investment recommendations.
 
 ![GridOpt dashboard screenshot](docs/screenshot.png)
 
@@ -20,11 +20,11 @@ Copy `.env.example` to `.env` only if you want to set an EIA key or deployment v
 ## Architecture and model
 
 - `src/` is a React/TypeScript responsive single-page dashboard. Charts are accessible inline SVG with text labels and units. Scenario inputs remain in browser memory; there is no account, database, or data retention.
-- `server/index.ts` serves `/api/health`, `/api/scenarios/demo`, `/api/run`, and `/api/data/eia`, applies request limits and security headers, and serves the built client.
-- `server/model.ts` validates the scenario, computes the baseline and heuristic dispatch, and independently recalculates interval balance and SOC feasibility before returning results.
-- The optimizer is intentionally a deterministic rule-based heuristic, not a mathematical optimizer or solver. It charges renewable surplus first, grid-charges at the lowest 35th-percentile tariff threshold, and discharges at the highest 75th-percentile threshold when there is a deficit. Threshold ties are inclusive. The horizon input is treated as known; this is not a forecast. It may miss a lower-cost schedule.
-- Solver and license: GridOpt does not use a third-party solver; the rule-based method is project code, so there is no solver license to install.
-- The initial SOC is set as a share of energy capacity and must meet the reserve. Ending inventory is normalized to initial SOC at the final interval tariff; depleted inventory is charged at the AC energy needed to restore it, while surplus inventory is credited at the AC energy released. The raw energy bill, adjustment, adjusted comparison, and final SOC are all shown. This terminal-price proxy ignores degradation and market settlement details.
+- `server/index.ts` serves `/api/health`, `/api/scenarios/demo`, `/api/run`, `/api/sensitivity`, and `/api/data/eia`, applies request limits and security headers, and serves the built client.
+- `server/model.ts` validates the scenario and computes the baseline/heuristic; `server/optimizer.ts` builds and solves the bounded HiGHS mixed-integer model. Both results are checked against independently recomputed interval balance and SOC feasibility.
+- GridOpt compares a deterministic rule-based heuristic with a genuine HiGHS mixed-integer linear program (MILP). The MILP chooses time-indexed charge/discharge, import/export, curtailment, and state-of-charge decisions; binary modes prevent simultaneous battery charge/discharge and grid import/export. It minimizes import cost net of export revenue under interval balance, efficiency, battery power/energy, reserve, and terminal-SOC-equals-initial constraints. HiGHS must report `Optimal` before the app labels a result optimal; other solver states are shown without a fabricated schedule. The known horizon is not a forecast.
+- Solver and license: `highs` runs HiGHS locally as WebAssembly; HiGHS is MIT licensed. The existing rule-based dispatch remains as a benchmark.
+- The initial SOC is set as a share of energy capacity and must meet the reserve. The optimizer constrains terminal SOC to equal initial SOC, so its raw energy objective needs no inventory adjustment. The heuristic allows a different ending SOC and is normalized to initial inventory at the final tariff as an illustrative accounting comparison. That proxy ignores degradation and market settlement details.
 
 ### Units and constraints
 
@@ -36,7 +36,7 @@ Copy `.env.example` to `.env` only if you want to set an EIA key or deployment v
 | Buy price and export price | USD/kWh | User/demo tariff values; illustrative unless supplied by the user |
 | Round-trip efficiency | fraction | Split symmetrically as square-root charge and discharge efficiencies |
 
-For interval duration `dt`, SOC updates as `SOC[t+1] = SOC[t] + charge[t] * sqrt(RTE) * dt - discharge[t] / sqrt(RTE) * dt`. Charge/discharge power, SOC, reserve, and interval balance are checked. The heuristic never charges and discharges simultaneously. Grid imports cover residual load, so unmet load is always zero in this model. With exports disabled, excess renewable power is curtailed; otherwise it is exported at the configured price. Comparison normalizes terminal SOC to initial SOC using the final input tariff and split round-trip efficiency, as an accounting proxy rather than an operating constraint.
+For interval duration `dt`, SOC updates as `SOC[t+1] = SOC[t] + charge[t] * sqrt(RTE) * dt - discharge[t] / sqrt(RTE) * dt`. Charge/discharge power, SOC, reserve, and interval balance are checked. The heuristic does not charge and discharge simultaneously. The optimizer enforces exclusivity using binary variables and constrains terminal SOC to equal initial SOC, so its raw horizon objective requires no inventory adjustment. The heuristic is separately normalized to initial inventory at the final tariff for a fairer but illustrative comparison. Grid imports cover residual load, so unmet load is zero. With exports disabled, excess renewable power is curtailed; otherwise it is exported at the configured price. The MILP is an optimization under simplified perfect-foresight inputs, not a real-time dispatch recommendation.
 
 The API accepts at most 168 intervals. Power capacities are nonnegative and bounded; input values must be finite. Battery energy and power capacity are separate fields and units.
 
@@ -81,7 +81,7 @@ npx playwright install chromium
 npm run e2e
 ```
 
-The unit fixture `server/model.test.ts` includes a one-hour, 2 kW import at $0.25/kWh, with expected energy charge **$0.50** and 2 kWh import. Numerical tolerances for independent interval balance and SOC recurrence are `1e-7` kW/kWh. Tests also cover charge/discharge efficiency, quarter-hour intervals, DST offset changes, zero generation/capacity, bounds, and invalid or uneven input. API tests cover health, demo-without-credentials, invalid requests, and missing EIA credentials. Browser smoke covers the example, settings edit, comparison, and result export.
+The unit fixture `server/model.test.ts` includes a one-hour, 2 kW import at $0.25/kWh, with expected energy charge **$0.50** and 2 kWh import. `server/optimizer.test.ts` checks an analytically simple charge/discharge schedule, terminal inventory restoration, exclusivity, zero capacity, and zero-load feasibility; API tests require an `Optimal` status and independently verified schedule. Numerical tolerances for independent interval balance and SOC recurrence are `1e-7` kW/kWh. Tests also cover charge/discharge efficiency, quarter-hour intervals, DST offset changes, zero generation/capacity, bounds, and invalid or uneven input. API tests cover health, demo-without-credentials, invalid requests, and missing EIA credentials. Browser smoke covers the example, settings edit, comparison, and result export.
 
 ## Deploy
 
@@ -91,8 +91,8 @@ The unit fixture `server/model.test.ts` includes a one-hour, 2 kW import at $0.2
 
 - [x] Seeded synthetic example works without credentials.
 - [x] Battery settings, renewable/load scaling, CSV input, and optional EIA demand-shape import.
-- [x] Baseline and rule-based comparison with interpretable power/SOC charts and objective notes.
+- [x] Baseline, rule-based heuristic, and HiGHS MILP comparison with interpretable power/SOC charts and objective notes.
 - [x] Independent energy balance, SOC, power, reserve, and capacity verification before display.
 - [x] Sensitivity view, source attribution, units, and JSON export.
 - [x] API, CI, tests, documentation, responsive styling, and deployment blueprint.
-- [ ] Live deployment: not performed; publish only after an operator connects the blueprint and verifies its URL.
+- [ ] Live deployment: not performed; an authorized Render account must connect the blueprint and configure optional EIA credentials.
