@@ -29,7 +29,11 @@ test('health, seeded demo, and scenario API work without credentials', async () 
   assert.ok(result.strategies.optimized);
   const sensitivity = await fetch(`${base}/api/sensitivity`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenario: demo }) });
   assert.equal(sensitivity.status, 200);
-  assert.equal((await sensitivity.json() as { costs:number[] }).costs.length, 3);
+  const sensitivityBody = await sensitivity.json() as { heuristicCosts:number[]; optimizedCosts:(number|null)[]; optimizationStatuses:string[] };
+  assert.equal(sensitivityBody.heuristicCosts.length, 3);
+  assert.equal(sensitivityBody.optimizedCosts.length, 3);
+  assert.ok(sensitivityBody.optimizedCosts.every(Number.isFinite));
+  assert.ok(sensitivityBody.optimizationStatuses.every(status => status.includes('verified')));
 });
 
 test('invalid scenarios and missing EIA credentials fail explicitly', async () => {

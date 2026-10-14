@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runScenario, validateScenario } from './model.js';
-import { optimizeDispatch } from './optimizer.js';
+import { optimizeDispatch, verifyDispatch } from './optimizer.js';
 
 export const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -43,17 +43,7 @@ app.post('/api/run', async (req, res) => {
     const solved = await optimizeDispatch(scenario);
     if (solved.status === 'Optimal') {
       const rows = solved.intervals;
-      const initialSocKWh = scenario.batteryKWh * scenario.initialSocFraction;
-      const independent = rows.every((row, i) => {
-        const p = scenario.intervals[i]!;
-        const before = i ? rows[i - 1]!.socKWh : initialSocKWh;
-        const eta = Math.sqrt(scenario.roundTripEfficiency);
-        const soc = before + (row.chargeKW * eta - row.dischargeKW / eta) * scenario.intervalHours;
-        const balance = row.importKW - row.exportKW - row.curtailmentKW + p.solarKW + p.windKW + row.dischargeKW - row.chargeKW - p.loadKW;
-        const values = [row.chargeKW, row.dischargeKW, row.importKW, row.exportKW, row.curtailmentKW, row.socKWh];
-        return values.every(Number.isFinite) && row.chargeKW >= -1e-6 && row.chargeKW <= scenario.batteryKW + 1e-6 && row.dischargeKW >= -1e-6 && row.dischargeKW <= scenario.batteryKW + 1e-6 && row.importKW >= -1e-6 && row.exportKW >= -1e-6 && row.curtailmentKW >= -1e-6 && (!scenario.exportAllowed ? row.exportKW < 1e-6 : row.exportKW <= Math.max(0, p.solarKW + p.windKW + scenario.batteryKW - p.loadKW) + 1e-6) && Math.abs(soc - row.socKWh) < 1e-6 && Math.abs(balance) < 1e-6 && row.socKWh >= scenario.batteryKWh * scenario.minSocFraction - 1e-6 && row.socKWh <= scenario.batteryKWh + 1e-6 && row.chargeKW * row.dischargeKW < 1e-8 && row.importKW * row.exportKW < 1e-8;
-      }) && Math.abs(rows.at(-1)!.socKWh - initialSocKWh) < 1e-6;
-      if (!independent) throw new Error('Optimizer solution failed independent energy, SOC, or terminal checks.');
+      if (!verifyDispatch(scenario, rows)) throw new Error('Optimizer solution failed independent energy, SOC, or terminal checks.');
       const totalCost = rows.reduce((sum, row) => sum + row.cost, 0);
       result.strategies.optimized = {
         intervals: rows, totalCost, inventoryAdjustment: 0, adjustedCost: totalCost,
@@ -70,15 +60,28 @@ app.post('/api/run', async (req, res) => {
   catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : 'Invalid scenario.' }); }
   finally { active--; }
 });
-app.post('/api/sensitivity', (req, res) => {
+app.post('/api/sensitivity', async (req, res) => {
+  if (active >= 4) { res.status(503).json({ error: 'The optimizer is busy. Try again shortly.' }); return; }
+  active++;
   try {
     const scenario = validateScenario(req.body?.scenario);
-    const costs = [.5, 1, 1.5].map((factor) => {
+    const factors = [.5, 1, 1.5];
+    const heuristicCosts = factors.map((factor) => {
       const candidate = validateScenario({ ...scenario, batteryKWh: scenario.batteryKWh * factor, batteryKW: scenario.batteryKW * factor });
       return runScenario(candidate).strategies.ruleBased.adjustedCost;
     });
-    res.json({ factors: [.5, 1, 1.5], costs });
+    const optimizedCosts: (number | null)[] = [];
+    const optimizationStatuses: string[] = [];
+    for (const factor of factors) {
+      const candidate = validateScenario({ ...scenario, batteryKWh: scenario.batteryKWh * factor, batteryKW: scenario.batteryKW * factor });
+      const solved = await optimizeDispatch(candidate);
+      const verified = solved.status === 'Optimal' && verifyDispatch(candidate, solved.intervals);
+      optimizedCosts.push(verified ? solved.intervals.reduce((sum, row) => sum + row.cost, 0) : null);
+      optimizationStatuses.push(verified ? 'Optimal · independently verified' : solved.status);
+    }
+    res.json({ factors, heuristicCosts, optimizedCosts, optimizationStatuses });
   } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : 'Invalid scenario.' }); }
+  finally { active--; }
 });
 app.post('/api/data/eia', async (req, res) => {
   const { key = process.env.EIA_API_KEY, respondent, hours } = req.body ?? {};

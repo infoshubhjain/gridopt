@@ -89,6 +89,8 @@ The unit fixture `server/model.test.ts` includes a one-hour, 2 kW import at $0.2
 
 ## Acceptance checklist
 
+The sensitivity view compares rule-based and MILP costs at 0.5×, 1×, and 1.5× battery energy and power. It shows an optimized cost only when HiGHS reports an optimum and the independent verifier confirms balance, SOC dynamics, reserve/capacity, exclusivity, and terminal SOC.
+
 - [x] Seeded synthetic example works without credentials.
 - [x] Battery settings, renewable/load scaling, CSV input, and optional EIA demand-shape import.
 - [x] Baseline, rule-based heuristic, and HiGHS MILP comparison with interpretable power/SOC charts and objective notes.

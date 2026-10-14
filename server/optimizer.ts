@@ -1,6 +1,19 @@
 import loadHighs from 'highs';
 import type { IntervalResult, Scenario } from './model.js';
 
+export function verifyDispatch(s: Scenario, rows: IntervalResult[]) {
+  const initialSocKWh = s.batteryKWh * s.initialSocFraction;
+  return rows.length === s.intervals.length && rows.every((row, i) => {
+    const p = s.intervals[i]!;
+    const before = i ? rows[i - 1]!.socKWh : initialSocKWh;
+    const eta = Math.sqrt(s.roundTripEfficiency);
+    const soc = before + (row.chargeKW * eta - row.dischargeKW / eta) * s.intervalHours;
+    const balance = row.importKW - row.exportKW - row.curtailmentKW + p.solarKW + p.windKW + row.dischargeKW - row.chargeKW - p.loadKW;
+    const values = [row.chargeKW, row.dischargeKW, row.importKW, row.exportKW, row.curtailmentKW, row.socKWh];
+    return values.every(Number.isFinite) && row.chargeKW >= -1e-6 && row.chargeKW <= s.batteryKW + 1e-6 && row.dischargeKW >= -1e-6 && row.dischargeKW <= s.batteryKW + 1e-6 && row.importKW >= -1e-6 && row.exportKW >= -1e-6 && row.curtailmentKW >= -1e-6 && (!s.exportAllowed ? row.exportKW < 1e-6 : row.exportKW <= Math.max(0, p.solarKW + p.windKW + s.batteryKW - p.loadKW) + 1e-6) && Math.abs(soc - row.socKWh) < 1e-6 && Math.abs(balance) < 1e-6 && row.socKWh >= s.batteryKWh * s.minSocFraction - 1e-6 && row.socKWh <= s.batteryKWh + 1e-6 && row.chargeKW * row.dischargeKW < 1e-8 && row.importKW * row.exportKW < 1e-8;
+  }) && Math.abs(rows.at(-1)!.socKWh - initialSocKWh) < 1e-6;
+}
+
 type HighsRuntime = {
   solve(problem: string, options: { output_flag: boolean; time_limit: number; mip_rel_gap: number }): {
     Status: string;
