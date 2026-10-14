@@ -9,7 +9,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const buckets = new Map<string, { start: number; count: number }>();
 let active = 0, lastCleanup = 0;
 app.disable('x-powered-by');
-app.set('trust proxy', 1);
+const proxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
+if (!Number.isInteger(proxyHops) || proxyHops < 0 || proxyHops > 5) throw new Error('TRUST_PROXY_HOPS must be an integer from 0 to 5.');
+app.set('trust proxy', proxyHops);
 app.use((_req, res, next) => {
   res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'" });
   next();

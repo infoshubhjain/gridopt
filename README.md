@@ -15,7 +15,7 @@ npm run dev
 
 Open http://localhost:5173. The seeded example works without an account, API key, or external service. For production-style local preview, run `npm run build && npm start` and open http://localhost:3000.
 
-Copy `.env.example` to `.env` only if you want to set an EIA key for the server. The app never needs a key to run its synthetic example. Do not commit `.env` or put API keys in source control.
+Copy `.env.example` to `.env` only if you want to set an EIA key or deployment values. The app never needs a key to run its synthetic example. `TRUST_PROXY_HOPS` defaults to `0`, so forwarded client addresses are ignored; set it to the exact number of trusted reverse-proxy hops only when deployment traffic cannot bypass those proxies. Do not commit `.env` or put API keys in source control.
 
 ## Architecture and model
 
@@ -24,7 +24,7 @@ Copy `.env.example` to `.env` only if you want to set an EIA key for the server.
 - `server/model.ts` validates the scenario, computes the baseline and heuristic dispatch, and independently recalculates interval balance and SOC feasibility before returning results.
 - The optimizer is intentionally a deterministic rule-based heuristic, not a mathematical optimizer or solver. It charges renewable surplus first, grid-charges at the lowest 35th-percentile tariff threshold, and discharges at the highest 75th-percentile threshold when there is a deficit. Threshold ties are inclusive. The horizon input is treated as known; this is not a forecast. It may miss a lower-cost schedule.
 - Solver and license: GridOpt does not use a third-party solver; the rule-based method is project code, so there is no solver license to install.
-- The initial SOC is set as a share of energy capacity and must meet the reserve. The final SOC has no terminal target or terminal value; it is shown in the results. Compare costs only alongside final SOC and the stated tariff.
+- The initial SOC is set as a share of energy capacity and must meet the reserve. Ending inventory is normalized to initial SOC at the final interval tariff; depleted inventory is charged at the AC energy needed to restore it, while surplus inventory is credited at the AC energy released. The raw energy bill, adjustment, adjusted comparison, and final SOC are all shown. This terminal-price proxy ignores degradation and market settlement details.
 
 ### Units and constraints
 
@@ -36,7 +36,7 @@ Copy `.env.example` to `.env` only if you want to set an EIA key for the server.
 | Buy price and export price | USD/kWh | User/demo tariff values; illustrative unless supplied by the user |
 | Round-trip efficiency | fraction | Split symmetrically as square-root charge and discharge efficiencies |
 
-For interval duration `dt`, SOC updates as `SOC[t+1] = SOC[t] + charge[t] * sqrt(RTE) * dt - discharge[t] / sqrt(RTE) * dt`. Charge/discharge power, SOC, reserve, and interval balance are checked. The heuristic never charges and discharges simultaneously. Grid imports cover residual load, so unmet load is always zero in this model. With exports disabled, excess renewable power is curtailed; otherwise it is exported at the configured price. No terminal SOC policy is imposed.
+For interval duration `dt`, SOC updates as `SOC[t+1] = SOC[t] + charge[t] * sqrt(RTE) * dt - discharge[t] / sqrt(RTE) * dt`. Charge/discharge power, SOC, reserve, and interval balance are checked. The heuristic never charges and discharges simultaneously. Grid imports cover residual load, so unmet load is always zero in this model. With exports disabled, excess renewable power is curtailed; otherwise it is exported at the configured price. Comparison normalizes terminal SOC to initial SOC using the final input tariff and split round-trip efficiency, as an accounting proxy rather than an operating constraint.
 
 The API accepts at most 168 intervals. Power capacities are nonnegative and bounded; input values must be finite. Battery energy and power capacity are separate fields and units.
 

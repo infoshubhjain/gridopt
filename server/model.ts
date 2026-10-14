@@ -81,13 +81,25 @@ export function runScenario(s: Scenario) {
     return Math.abs(recurrence - r.socKWh) < 1e-7 && Math.abs(balance) < 1e-7 && r.socKWh >= s.batteryKWh * s.minSocFraction - 1e-7 && r.socKWh <= s.batteryKWh + 1e-7 && r.chargeKW * r.dischargeKW === 0 && r.chargeKW <= s.batteryKW && r.dischargeKW <= s.batteryKW;
   });
   if (!check(baseline) || !check(ruleBased)) throw new Error('Dispatch failed the independent physics check.');
-  const summarize = (rows: IntervalResult[]) => ({
-    totalCost: rows.reduce((n, r) => n + r.cost, 0),
+  const summarize = (rows: IntervalResult[]) => {
+    const totalCost = rows.reduce((n, r) => n + r.cost, 0);
+    const finalSocKWh = rows.at(-1)!.socKWh;
+    const initialSocKWh = s.batteryKWh * s.initialSocFraction;
+    const terminalPrice = s.intervals.at(-1)!.pricePerKWh;
+    const eta = Math.sqrt(s.roundTripEfficiency);
+    const inventoryAdjustment = finalSocKWh < initialSocKWh
+      ? (initialSocKWh - finalSocKWh) * terminalPrice / eta
+      : -(finalSocKWh - initialSocKWh) * terminalPrice * eta;
+    return {
+    totalCost,
+    inventoryAdjustment,
+    adjustedCost: totalCost + inventoryAdjustment,
     importedKWh: rows.reduce((n, r) => n + r.importKW * s.intervalHours, 0),
     exportedKWh: rows.reduce((n, r) => n + r.exportKW * s.intervalHours, 0),
     curtailedKWh: rows.reduce((n, r) => n + r.curtailmentKW * s.intervalHours, 0),
     unmetKWh: rows.reduce((n, r) => n + r.unmetKW * s.intervalHours, 0),
-    finalSocKWh: rows.at(-1)!.socKWh,
-  });
-  return { scenario: s, objective: 'Compare illustrative energy charges subject to interval power balance, battery power limits and SOC bounds. Rule-based dispatch charges renewable surplus or at low-price hours and discharges at high-price hours; it is a heuristic, not a mathematical optimizer. Final SOC is unconstrained and shown in the results.', strategies: { baseline: { intervals: baseline, ...summarize(baseline) }, ruleBased: { intervals: ruleBased, ...summarize(ruleBased) } }, verified: true, tolerance: '1e-7 kW/kWh' };
+    finalSocKWh,
+    };
+  };
+  return { scenario: s, objective: 'Compare illustrative energy charges subject to interval power balance, battery power limits and SOC bounds. Rule-based dispatch charges renewable surplus or at low-price hours and discharges at high-price hours; it is a heuristic, not a mathematical optimizer. Ending inventory is normalized to initial SOC at the final interval tariff using round-trip efficiency; this is an illustrative accounting adjustment, not a market settlement.', strategies: { baseline: { intervals: baseline, ...summarize(baseline) }, ruleBased: { intervals: ruleBased, ...summarize(ruleBased) } }, verified: true, tolerance: '1e-7 kW/kWh' };
 }

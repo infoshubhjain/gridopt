@@ -32,6 +32,17 @@ test('calculates interval energy cost from kW, hours, and tariff', () => {
   assert.equal(result.strategies.baseline.importedKWh, 2);
 });
 
+test('normalizes cost when dispatch depletes starting battery inventory', () => {
+  const s = validateScenario(scenario({
+    minSocFraction: 0,
+    intervals: [{ timestamp: '2025-01-01T00:00:00Z', loadKW: 1, solarKW: 0, windKW: 0, pricePerKWh: .4 }],
+  }));
+  const result = runScenario(s).strategies;
+  assert.equal(result.baseline.adjustedCost, result.baseline.totalCost);
+  assert.ok(result.ruleBased.finalSocKWh < s.batteryKWh * s.initialSocFraction);
+  assert.ok(result.ruleBased.adjustedCost > result.baseline.adjustedCost);
+});
+
 test('accounts for export income or curtailment according to the export setting', () => {
   const intervals = [{ timestamp: '2025-01-01T00:00:00Z', loadKW: 1, solarKW: 5, windKW: 0, pricePerKWh: .25 }];
   const exportResult = runScenario(validateScenario(scenario({ batteryKWh: 0, batteryKW: 0, exportAllowed: true, exportPrice: .1, intervals })));

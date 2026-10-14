@@ -7,6 +7,7 @@ const localFetch = globalThis.fetch.bind(globalThis);
 before(async () => {
   process.env.NODE_ENV = 'test';
   const { app } = await import('./index.js');
+  assert.equal(app.get('trust proxy'), 0);
   server = app.listen(0);
   await new Promise<void>(resolve => server.once('listening', resolve));
   const address = server.address();
