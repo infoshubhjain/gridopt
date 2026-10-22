@@ -1,6 +1,6 @@
 # GridOpt
 
-GridOpt is an educational microgrid planning demonstrator. **Live demo:** [gridopt-u0xp.onrender.com](https://gridopt-u0xp.onrender.com/). It compares a no-storage baseline, a transparent heuristic, and a constrained battery optimizer using the same hourly or subhourly scenario. It does not control grid equipment, submit market offers, or provide engineering or investment recommendations.
+GridOpt is an educational microgrid planning demonstrator. **Live demo:** [gridopt.vercel.app](https://gridopt.vercel.app/). It compares a no-storage baseline, a transparent heuristic, and a constrained battery optimizer using the same hourly or subhourly scenario. It does not control grid equipment, submit market offers, or provide engineering or investment recommendations.
 
 ![GridOpt dashboard screenshot](docs/screenshot.png)
 
@@ -87,6 +87,8 @@ The unit fixture `server/model.test.ts` includes a one-hour, 2 kW import at $0.2
 
 ## Deploy
 
+`vercel.json` deploys the Vite frontend to Vercel and forwards same-origin `/api/*` requests to the existing [Render backend](https://gridopt-u0xp.onrender.com/). Both the public page and API health endpoint returned HTTP 200, and the demo comparison produced an independently verified optimum through the Vercel URL on 2026-10-22. The Vercel project is connected to the GitHub repository. The API still depends on Render availability; its free instance may take about a minute to wake after inactivity. Vercel's [Hobby plan](https://vercel.com/docs/plans/hobby) has usage limits and is for personal, noncommercial projects.
+
 `render.yaml` describes the deployed single free-tier Render web service. It sets `TRUST_PROXY_HOPS=1` for Render’s trusted load balancer; local runs default to zero and ignore untrusted forwarded headers. If Render’s proxy topology changes, verify client-IP handling before relying on per-IP limits. The service uses Node 22, runs `npm ci && npm run build`, starts with `npm start`, and checks `/api/health`. The public URL passed both health and demo optimization checks on 2026-10-22. EIA is optional; add a user-owned `EIA_API_KEY` in Render's environment settings to enable that integration. This Blueprint was connected using the public repository URL, so verify auto-deploy behavior before expecting later pushes to go live; manual sync in Render is available. Render's free web services spin down when idle and have included bandwidth/build limits; review the current [free service terms](https://render.com/docs/free) because usage beyond included amounts may incur charges.
 
 ## Acceptance checklist
@@ -100,3 +102,4 @@ The optional sensitivity view compares rule-based and MILP costs at 0.5×, 1×, 
 - [x] Sensitivity view, source attribution, units, and JSON export.
 - [x] API, CI, tests, documentation, responsive styling, and deployment blueprint.
 - [x] Public Render deployment: health endpoint and optimized demo scenario verified on 2026-10-22; EIA remains optional and unconfigured.
+- [x] Public Vercel frontend: page, proxied API health, and verified optimization checked on 2026-10-22.
