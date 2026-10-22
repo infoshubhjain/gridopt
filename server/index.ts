@@ -2,7 +2,8 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runScenario, validateScenario } from './model.js';
-import { optimizeDispatch, verifyDispatch } from './optimizer.js';
+import { verifyDispatch } from './optimizer.js';
+import { solveDispatch } from './solver.js';
 
 export const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -35,12 +36,12 @@ app.use(express.json({ limit: '256kb' }));
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 app.get('/api/scenarios/demo', (_req, res) => res.json(demoScenario()));
 app.post('/api/run', async (req, res) => {
-  if (active >= 4) { res.status(503).json({ error: 'The optimizer is busy. Try again shortly.' }); return; }
+  if (active >= 2) { res.status(503).json({ error: 'The optimizer is busy. Try again shortly.' }); return; }
   active++;
   try {
     const scenario = validateScenario(req.body);
     const result = runScenario(scenario);
-    const solved = await optimizeDispatch(scenario);
+    const solved = await solveDispatch(scenario);
     if (solved.status === 'Optimal') {
       const rows = solved.intervals;
       if (!verifyDispatch(scenario, rows)) throw new Error('Optimizer solution failed independent energy, SOC, or terminal checks.');
@@ -57,11 +58,11 @@ app.post('/api/run', async (req, res) => {
     result.objective = 'HiGHS mixed-integer linear optimization minimizes imported energy cost net of export revenue, with explicit power balance, charge/discharge exclusivity, battery efficiency, SOC reserve/capacity, and terminal SOC equal to initial SOC. The rule-based strategy remains a heuristic benchmark.';
     res.json(result);
   }
-  catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : 'Invalid scenario.' }); }
+  catch (e) { res.status(e instanceof Error && e.name === 'ZodError' ? 400 : 503).json({ error: e instanceof Error ? e.message : 'Could not run scenario.' }); }
   finally { active--; }
 });
 app.post('/api/sensitivity', async (req, res) => {
-  if (active >= 4) { res.status(503).json({ error: 'The optimizer is busy. Try again shortly.' }); return; }
+  if (active >= 2) { res.status(503).json({ error: 'The optimizer is busy. Try again shortly.' }); return; }
   active++;
   try {
     const scenario = validateScenario(req.body?.scenario);
@@ -74,13 +75,13 @@ app.post('/api/sensitivity', async (req, res) => {
     const optimizationStatuses: string[] = [];
     for (const factor of factors) {
       const candidate = validateScenario({ ...scenario, batteryKWh: scenario.batteryKWh * factor, batteryKW: scenario.batteryKW * factor });
-      const solved = await optimizeDispatch(candidate);
+      const solved = await solveDispatch(candidate);
       const verified = solved.status === 'Optimal' && verifyDispatch(candidate, solved.intervals);
       optimizedCosts.push(verified ? solved.intervals.reduce((sum, row) => sum + row.cost, 0) : null);
       optimizationStatuses.push(verified ? 'Optimal · independently verified' : solved.status);
     }
     res.json({ factors, heuristicCosts, optimizedCosts, optimizationStatuses });
-  } catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : 'Invalid scenario.' }); }
+  } catch (e) { res.status(e instanceof Error && e.name === 'ZodError' ? 400 : 503).json({ error: e instanceof Error ? e.message : 'Sensitivity unavailable.' }); }
   finally { active--; }
 });
 app.post('/api/data/eia', async (req, res) => {
@@ -99,9 +100,9 @@ app.post('/api/data/eia', async (req, res) => {
     const body = await response.json() as { response?: { data?: { period?: string; value?: number | string }[] }; error?: string };
     if (!body.response?.data?.length) throw new Error(body.error || 'EIA returned no hourly demand observations for this period.');
     const values = body.response.data.map(x => Number(x.value));
-    const timestamps = body.response.data.map(x => new Date(Date.parse(x.period!.length === 13 ? `${x.period}:00Z` : x.period!)).toISOString());
+    const timestamps = body.response.data.map(x => new Date(Date.parse(x.period!.length === 13 ? `${x.period}:00Z` : x.period!) - 3_600_000).toISOString());
     if (values.length !== hours || values.some(x => !Number.isFinite(x) || x < 0) || timestamps.some((t, i) => i > 0 && Date.parse(t) - Date.parse(timestamps[i - 1]) !== 3_600_000)) throw new Error('EIA returned missing, invalid, or uneven hourly demand data.');
-    res.json({ values, timestamps, source: 'EIA Form EIA-930, hourly balancing-authority demand (MWh); UTC.', respondent, unit: 'MWh per hourly interval', provenance: 'Actual historical grid demand, normalized to the example microgrid peak for shape context only. Not a site load forecast.' });
+    res.json({ values, timestamps, source: 'EIA Form EIA-930, hourly balancing-authority demand (MWh); UTC hour-ending observations shifted to interval start.', respondent, unit: 'MWh per hourly interval', provenance: 'Historical regional demand normalized to the example microgrid peak for shape context only. Not a site load forecast.' });
   } catch (e) { res.status(502).json({ error: e instanceof Error ? e.message : 'EIA request failed.' }); }
   finally { active--; }
 });

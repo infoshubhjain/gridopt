@@ -1,6 +1,6 @@
 # GridOpt
 
-GridOpt is an educational microgrid planning demonstrator. It compares a no-storage baseline, a transparent heuristic, and a constrained battery optimizer using the same hourly or subhourly scenario. It does not control grid equipment, submit market offers, or provide engineering or investment recommendations.
+GridOpt is an educational microgrid planning demonstrator. **Live demo:** deployment pending verification. It compares a no-storage baseline, a transparent heuristic, and a constrained battery optimizer using the same hourly or subhourly scenario. It does not control grid equipment, submit market offers, or provide engineering or investment recommendations.
 
 ![GridOpt dashboard screenshot](docs/screenshot.png)
 
@@ -23,10 +23,10 @@ Copy `.env.example` to `.env` only if you want to set an EIA key or deployment v
 
 - `src/` is a React/TypeScript responsive single-page dashboard. Charts are accessible inline SVG with text labels and units. Scenario inputs remain in browser memory; there is no account, database, or data retention.
 - `server/index.ts` serves `/api/health`, `/api/scenarios/demo`, `/api/run`, `/api/sensitivity`, and `/api/data/eia`, applies request limits and security headers, and serves the built client.
-- `server/model.ts` validates the scenario and computes the baseline/heuristic; `server/optimizer.ts` builds and solves the bounded HiGHS mixed-integer model. Both results are checked against independently recomputed interval balance and SOC feasibility.
+- `server/model.ts` validates the scenario and computes the baseline/heuristic; `server/optimizer.ts` builds and solves the bounded HiGHS mixed-integer model in a worker thread, keeping the API responsive. Results are checked against independently recomputed interval balance and SOC feasibility.
 - GridOpt compares a deterministic rule-based heuristic with a genuine HiGHS mixed-integer linear program (MILP). The MILP chooses time-indexed charge/discharge, import/export, curtailment, and state-of-charge decisions; binary modes prevent simultaneous battery charge/discharge and grid import/export. It minimizes import cost net of export revenue under interval balance, efficiency, battery power/energy, reserve, and terminal-SOC-equals-initial constraints. HiGHS must report `Optimal` before the app labels a result optimal; other solver states are shown without a fabricated schedule. The known horizon is not a forecast.
 - Solver and license: `highs` runs HiGHS locally as WebAssembly; HiGHS is MIT licensed. The existing rule-based dispatch remains as a benchmark.
-- The initial SOC is set as a share of energy capacity and must meet the reserve. The optimizer constrains terminal SOC to equal initial SOC, so its raw energy objective needs no inventory adjustment. The heuristic allows a different ending SOC and is normalized to initial inventory at the final tariff as an illustrative accounting comparison. That proxy ignores degradation and market settlement details.
+- The initial SOC is set as a share of energy capacity and must meet the reserve. The optimizer constrains terminal SOC to equal initial SOC, so its raw energy objective needs no inventory adjustment. The heuristic allows a different ending SOC and is normalized to initial inventory at the final tariff as an illustrative accounting comparison. Its adjusted cost is not directly comparable as a proven optimality gap with the constrained optimum. The dashboard shows ending SOC for all strategies and a negative baseline-minus-heuristic difference as a cost increase. That proxy ignores degradation and market settlement details.
 
 ### Units and constraints
 
@@ -50,13 +50,13 @@ The default 24-hour example is deterministic and generated in `server/index.ts`.
 
 ### EIA hourly grid-demand profile
 
-The optional integration queries the official [EIA API v2 hourly EIA-930 dataset](https://api.eia.gov/v2/electricity/rto/region-data/data/), selecting a balancing authority (MISO, PJM, NYIS, or CAISO) and the demand metric. EIA identifies the data as hourly demand, demand forecast, net generation, and interchange from Form EIA-930. The endpoint exposes UTC hourly and local-hourly frequencies; GridOpt requests UTC. EIA's returned demand is MWh in each hourly interval. The app uses the sequence only as a *shape*: it normalizes values to the example site's peak load, retains the observation timestamps, and explicitly labels the transformation. This is actual historical grid demand, not a site load or forecast. Importing it changes only the load shape; the current solar/wind profiles and tariff remain as configured and are still illustrative.
+The optional integration queries the official [EIA API v2 hourly EIA-930 dataset](https://api.eia.gov/v2/electricity/rto/region-data/data/), selecting a balancing authority (MISO, PJM, NYIS, or CAISO) and the demand metric. EIA identifies the data as hourly demand, demand forecast, net generation, and interchange from Form EIA-930. The endpoint exposes UTC hourly and local-hourly frequencies; GridOpt requests UTC. EIA's returned demand is MWh in each hourly interval and its UTC `period` is the **hour-ending** timestamp. GridOpt subtracts one hour to label interval starts in the chart and exported scenario. The app uses the sequence only as a *shape*: it normalizes values to the example site's peak load, retains the observation timestamps, and explicitly labels the transformation. This is actual historical grid demand, not a site load or forecast. Importing it changes only the load shape; the current solar/wind profiles and tariff remain as configured, aligned by row index rather than observation time, and are explicitly labeled as noncontemporaneous illustrative inputs. Those combined profiles must not be interpreted as a measured site or weather record.
 
 An EIA key is required for API requests. Register for a free key through [EIA Open Data](https://www.eia.gov/opendata/register.php); terms are on the registration page. Supply it in the password field for one request or configure `EIA_API_KEY` on the server. The key is not saved in browser storage, logs, or exports. Requests are limited to 24–168 hourly observations and time out. EIA data may be revised; the API identifies the source and observation times but this MVP does not archive a revision snapshot. If a request fails, the app reports the error and leaves the current source loaded. The user can explicitly retry or reset to the synthetic example.
 
 ### CSV input
 
-CSV headers: `timestamp,load_kw,solar_kw,wind_kw,price_per_kwh`. Rows must contain nonnegative numeric values and ISO timestamps with `Z` or an explicit UTC offset. Times must be ordered and evenly spaced. Imports are limited to 168 rows and 2 MB. This intentionally small CSV reader accepts plain comma-separated fields and does not implement quoted commas. CSV is parsed in the browser and only sent to the local API when the user runs the scenario. Results export as JSON (not spreadsheet formulas) and contain assumptions, units, data provenance, model version, objective, interval outputs, and the feasibility-check result.
+CSV headers: `timestamp,load_kw,solar_kw,wind_kw,price_per_kwh`. Rows must contain nonblank, nonnegative numeric values and ISO timestamps with `Z` or an explicit UTC offset. Times must be ordered and evenly spaced. Imports are limited to 168 rows and 2 MB. This intentionally small CSV reader accepts plain comma-separated fields and does not implement quoted commas. CSV is parsed in the browser and only sent to the local API when the user runs the scenario. Results export as JSON (not spreadsheet formulas) and contain assumptions, units, data provenance, model version, objective, interval outputs, and the feasibility-check result.
 
 ## Scope and limits
 
@@ -66,10 +66,10 @@ No real-time control loop, stored credentials, persistent user records, or paid 
 
 ## Security and privacy
 
-- API accepts at most 256 KB JSON bodies, 168 intervals per run, and 90 requests per IP per minute. Four expensive jobs may run concurrently; inputs are bounded and the dispatch is linear in horizon size.
+- API accepts at most 256 KB JSON bodies, 168 intervals per run, and 90 requests per IP per minute. Two expensive jobs may run concurrently; each solver call runs in a worker with an eight-second HiGHS limit and a 15-second worker timeout. Inputs are bounded and the dispatch is linear in horizon size. The in-memory limiter is per instance, which is sufficient for the single free service but not a distributed rate limit.
 - Same-origin API only; no cross-origin access is enabled. Headers disable framing and content sniffing, restrict permissions and script sources, and conceal the Express signature.
 - Errors returned to clients are scoped to validation/source issues. API keys and scenario data are not written to logs. No persistence is configured.
-- CSV numeric columns and timestamps are validated before use. Export is JSON with safe download filename and no CSV/formula evaluation.
+- CSV numeric columns, including blank values, and timestamps are validated before use. Export is JSON with safe download filename and no CSV/formula evaluation.
 - Keep dependencies current and review `npm audit` output when updating them. CI installs exact lockfile dependencies.
 
 ## Checks and reproducible example
@@ -83,15 +83,15 @@ npx playwright install chromium
 npm run e2e
 ```
 
-The unit fixture `server/model.test.ts` includes a one-hour, 2 kW import at $0.25/kWh, with expected energy charge **$0.50** and 2 kWh import. `server/optimizer.test.ts` checks an analytically simple charge/discharge schedule, terminal inventory restoration, exclusivity, zero capacity, and zero-load feasibility; API tests require an `Optimal` status and independently verified schedule. Numerical tolerances for independent interval balance and SOC recurrence are `1e-7` kW/kWh. Tests also cover charge/discharge efficiency, quarter-hour intervals, DST offset changes, zero generation/capacity, bounds, and invalid or uneven input. API tests cover health, demo-without-credentials, invalid requests, and missing EIA credentials. Browser smoke covers the example, settings edit, comparison, and result export.
+The unit fixture `server/model.test.ts` includes a one-hour, 2 kW import at $0.25/kWh, with expected energy charge **$0.50** and 2 kWh import. `server/optimizer.test.ts` checks an analytically simple charge/discharge schedule, terminal inventory restoration, exclusivity, zero capacity, and zero-load feasibility; API tests require an `Optimal` status and independently verified schedule. Numerical tolerances for independent interval balance and SOC recurrence are `1e-7` kW/kWh. Tests also cover charge/discharge efficiency, quarter-hour intervals, DST offset changes, zero generation/capacity, bounds, and invalid or uneven input. API tests cover health, demo-without-credentials, invalid requests, and missing EIA credentials. Browser smoke covers the example, settings edit, comparison, sensitivity on demand, zero load, CSV rejection, mobile layout, and result export. The browser suite uses dedicated port 3001 and refuses to reuse an unknown listener.
 
 ## Deploy
 
-`render.yaml` describes a single free-tier Render web service. To deploy, connect this repository to Render and use the included blueprint. The service uses Node 22, runs `npm ci && npm run build`, starts with `npm start`, and checks `/api/health`. EIA is optional; add a user-owned `EIA_API_KEY` in Render's environment settings to enable that integration. Render's free web services spin down when idle and have included bandwidth/build limits; review the current [free service terms](https://render.com/docs/free) before deploying because usage beyond included amounts may incur charges. A deployment has not been made or verified as part of this repository setup.
+`render.yaml` describes a single free-tier Render web service. It sets `TRUST_PROXY_HOPS=1` for Render’s trusted load balancer; local runs default to zero and ignore untrusted forwarded headers. If Render’s proxy topology changes, verify client-IP handling before relying on per-IP limits. To deploy, connect this repository to Render and use the included blueprint. The service uses Node 22, runs `npm ci && npm run build`, starts with `npm start`, and checks `/api/health`. EIA is optional; add a user-owned `EIA_API_KEY` in Render's environment settings to enable that integration. Render's free web services spin down when idle and have included bandwidth/build limits; review the current [free service terms](https://render.com/docs/free) before deploying because usage beyond included amounts may incur charges. A deployment has not been made or verified as part of this repository setup.
 
 ## Acceptance checklist
 
-The sensitivity view compares rule-based and MILP costs at 0.5×, 1×, and 1.5× battery energy and power. It shows an optimized cost only when HiGHS reports an optimum and the independent verifier confirms balance, SOC dynamics, reserve/capacity, exclusivity, and terminal SOC.
+The optional sensitivity view compares rule-based and MILP costs at 0.5×, 1×, and 1.5× battery energy and power after the user selects **Compare capacities**. It shows an optimized cost only when HiGHS reports an optimum and the independent verifier confirms balance, SOC dynamics, reserve/capacity, exclusivity, and terminal SOC.
 
 - [x] Seeded synthetic example works without credentials.
 - [x] Battery settings, renewable/load scaling, CSV input, and optional EIA demand-shape import.

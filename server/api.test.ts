@@ -55,7 +55,7 @@ test('EIA demand is fetched from the data route and returned in UTC with source 
     assert.equal(response.status, 200);
     const body = await response.json() as { values:number[]; timestamps:string[]; unit:string };
     assert.equal(body.values[0], 100);
-    assert.equal(body.timestamps[0], '2026-10-01T00:00:00.000Z');
+    assert.equal(body.timestamps[0], '2026-09-30T23:00:00.000Z');
     assert.match(body.unit, /MWh/);
   } finally { fetchStub.mock.restore(); }
 });
