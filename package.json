@@ -17,7 +17,7 @@
     "highs": "^1.15.3",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react-dom": "^19.3.1",
     "zod": "^3.24.2"
   },
   "devDependencies": {
