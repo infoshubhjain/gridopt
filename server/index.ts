@@ -10,6 +10,7 @@ const port = Number(process.env.PORT || 3000);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const buckets = new Map<string, { start: number; count: number }>();
 let active = 0, lastCleanup = 0;
+const runCache = new Map<string, { until: number; result: ReturnType<typeof runScenario> }>();
 app.disable('x-powered-by');
 const proxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
 if (!Number.isInteger(proxyHops) || proxyHops < 0 || proxyHops > 5) throw new Error('TRUST_PROXY_HOPS must be an integer from 0 to 5.');
@@ -40,6 +41,12 @@ app.post('/api/run', async (req, res) => {
   active++;
   try {
     const scenario = validateScenario(req.body);
+    const cacheKey = JSON.stringify(scenario);
+    const cached = runCache.get(cacheKey);
+    if (cached && cached.until > Date.now()) {
+      res.set('X-GridOpt-Cache', 'HIT').json(cached.result);
+      return;
+    }
     const result = runScenario(scenario);
     const solved = await solveDispatch(scenario);
     if (solved.status === 'Optimal') {
@@ -56,7 +63,11 @@ app.post('/api/run', async (req, res) => {
       result.optimization = { status: solved.status, runtimeMs: solved.runtimeMs, verified: true };
     } else result.optimization = { status: solved.status, runtimeMs: solved.runtimeMs, verified: false };
     result.objective = 'HiGHS mixed-integer linear optimization minimizes imported energy cost net of export revenue, with explicit power balance, charge/discharge exclusivity, battery efficiency, SOC reserve/capacity, and terminal SOC equal to initial SOC. The rule-based strategy remains a heuristic benchmark.';
-    res.json(result);
+    if (result.optimization?.verified) {
+      runCache.set(cacheKey, { until: Date.now() + 300_000, result });
+      if (runCache.size > 16) runCache.delete(runCache.keys().next().value!);
+    }
+    res.set('X-GridOpt-Cache', 'MISS').json(result);
   }
   catch (e) { res.status(e instanceof Error && e.name === 'ZodError' ? 400 : 503).json({ error: e instanceof Error ? e.message : 'Could not run scenario.' }); }
   finally { active--; }

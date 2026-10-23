@@ -27,6 +27,9 @@ test('health, seeded demo, and scenario API work without credentials', async () 
   assert.equal(result.optimization.status, 'Optimal');
   assert.equal(result.optimization.verified, true);
   assert.ok(result.strategies.optimized);
+  const repeated = await fetch(`${base}/api/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(demo) });
+  assert.equal(repeated.headers.get('x-gridopt-cache'), 'HIT');
+  assert.deepEqual(await repeated.json(), result);
   const sensitivity = await fetch(`${base}/api/sensitivity`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scenario: demo }) });
   assert.equal(sensitivity.status, 200);
   const sensitivityBody = await sensitivity.json() as { heuristicCosts:number[]; optimizedCosts:(number|null)[]; optimizationStatuses:string[] };
