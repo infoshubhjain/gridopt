@@ -8,12 +8,25 @@ test('demo → edit settings → compare → export', async ({ page }) => {
   const capacity = page.getByLabel('Energy capacity');
   await capacity.fill('10');
   await page.getByRole('button', { name: 'Overview', exact: true }).first().click();
+  const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/run') && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Run comparison' }).click();
+  const result = await (await responsePromise).json();
   await expect(page.getByText('Independent physics check passed')).toBeVisible({ timeout: 30000 });
   await expect(page.locator('.optimal-card')).toContainText('VERIFIED OPTIMUM');
   await page.getByRole('slider', { name: 'Inspect dispatch interval' }).fill('12');
   await expect(page.locator('.dispatch-workbench')).toContainText('Interval 13 of 24');
-  await expect(page.locator('.dispatch-workbench')).toContainText('Battery state');
+  const format = (value:number) => new Intl.NumberFormat('en-US', { maximumFractionDigits:1 }).format(value);
+  const battery = (strategy:'optimized'|'ruleBased') => {
+    const interval = result.strategies[strategy].intervals[12];
+    const value = interval.dischargeKW - interval.chargeKW;
+    return `${value >= 0 ? '+' : ''}${format(value)}`;
+  };
+  await expect(page.locator('.dispatch-node.battery strong')).toHaveText(battery('optimized'));
+  await expect(page.locator('.chart-panel').first()).toContainText('Verified optimal schedule');
+  await page.getByRole('button', { name: 'Rule-based', exact: true }).click();
+  await expect(page.locator('.dispatch-node.battery strong')).toHaveText(battery('ruleBased'));
+  await expect(page.locator('.chart-panel').first()).toContainText('Rule-based schedule');
+  await expect(page.locator('.strategy-switch [aria-pressed="true"]')).toHaveText('Rule-based');
   await page.getByRole('button', { name: 'Compare capacities' }).click();
   await expect(page.locator('.sensitivity [role="status"]')).toHaveText(/MILP costs appear only/);
   await expect(page.getByText('$', { exact: false }).first()).toBeVisible();
