@@ -41,9 +41,27 @@ test('health, seeded demo, and scenario API work without credentials', async () 
 
 test('invalid scenarios and missing EIA credentials fail explicitly', async () => {
   assert.equal((await fetch(`${base}/api/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 400);
+  const demo = await (await fetch(`${base}/api/scenarios/demo`)).json() as { intervals: {timestamp: string}[]; batteryKWh: number };
+  demo.intervals[1]!.timestamp = demo.intervals[0]!.timestamp;
+  assert.equal((await fetch(`${base}/api/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(demo) })).status, 400);
+  assert.equal((await fetch(`${base}/api/sensitivity`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({scenario: demo}) })).status, 400);
   const eia = await fetch(`${base}/api/data/eia`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ respondent: 'MISO', hours: 24 }) });
   assert.equal(eia.status, 400);
   assert.match((await eia.json() as { error:string }).error, /API key/);
+});
+
+test('sensitivity keeps valid factors when a larger capacity exceeds the supported range', async () => {
+  const demo = await (await fetch(`${base}/api/scenarios/demo`)).json() as { batteryKWh: number; batteryKW: number; intervals: unknown[] };
+  demo.batteryKWh = 4000;
+  demo.batteryKW = 0;
+  demo.intervals = demo.intervals.slice(0, 1);
+  const response = await fetch(`${base}/api/sensitivity`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({scenario: demo}) });
+  assert.equal(response.status, 200);
+  const result = await response.json() as { heuristicCosts: (number|null)[]; optimizedCosts: (number|null)[]; optimizationStatuses: string[] };
+  assert.equal(result.heuristicCosts[2], null);
+  assert.equal(result.optimizedCosts[2], null);
+  assert.match(result.optimizationStatuses[2]!, /Outside supported/);
+  assert.ok(result.optimizedCosts.slice(0, 2).every(Number.isFinite));
 });
 
 test('EIA demand is fetched from the data route and returned in UTC with source units', async () => {

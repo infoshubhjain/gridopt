@@ -20,6 +20,7 @@ export const scenarioSchema = z.object({
 });
 
 export type Scenario = z.infer<typeof scenarioSchema>;
+export class ScenarioInputError extends Error {}
 export type Strategy = 'baseline' | 'ruleBased';
 export type IntervalResult = {
   timestamp: string; loadKW: number; solarKW: number; windKW: number; chargeKW: number;
@@ -42,9 +43,9 @@ export function validateScenario(raw: unknown): Scenario {
   const scenario = scenarioSchema.parse(raw);
   const times = scenario.intervals.map(({ timestamp }) => Date.parse(timestamp));
   for (let i = 1; i < times.length; i++) {
-    if (times[i] - times[i - 1] !== scenario.intervalHours * 3_600_000) throw new Error('Timestamps must be strictly ordered and evenly spaced at the selected interval.');
+    if (times[i] - times[i - 1] !== scenario.intervalHours * 3_600_000) throw new ScenarioInputError('Timestamps must be strictly ordered and evenly spaced at the selected interval.');
   }
-  if (scenario.initialSocFraction < scenario.minSocFraction) throw new Error('Initial state of charge must be at or above the reserve target.');
+  if (scenario.initialSocFraction < scenario.minSocFraction) throw new ScenarioInputError('Initial state of charge must be at or above the reserve target.');
   return scenario;
 }
 

@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runScenario, validateScenario } from './model.js';
+import { runScenario, ScenarioInputError, validateScenario } from './model.js';
 import { verifyDispatch } from './optimizer.js';
 import { solveDispatch } from './solver.js';
 
@@ -69,7 +69,7 @@ app.post('/api/run', async (req, res) => {
     }
     res.set('X-GridOpt-Cache', 'MISS').json(result);
   }
-  catch (e) { res.status(e instanceof Error && e.name === 'ZodError' ? 400 : 503).json({ error: e instanceof Error ? e.message : 'Could not run scenario.' }); }
+  catch (e) { res.status(e instanceof ScenarioInputError || e instanceof Error && e.name === 'ZodError' ? 400 : 503).json({ error: e instanceof Error ? e.message : 'Could not run scenario.' }); }
   finally { active--; }
 });
 app.post('/api/sensitivity', async (req, res) => {
@@ -78,21 +78,28 @@ app.post('/api/sensitivity', async (req, res) => {
   try {
     const scenario = validateScenario(req.body?.scenario);
     const factors = [.5, 1, 1.5];
-    const heuristicCosts = factors.map((factor) => {
-      const candidate = validateScenario({ ...scenario, batteryKWh: scenario.batteryKWh * factor, batteryKW: scenario.batteryKW * factor });
-      return runScenario(candidate).strategies.ruleBased.adjustedCost;
+    const candidates = factors.map((factor) => {
+      try { return validateScenario({ ...scenario, batteryKWh: scenario.batteryKWh * factor, batteryKW: scenario.batteryKW * factor }); }
+      catch (e) { if (e instanceof Error && e.name === 'ZodError') return null; throw e; }
     });
+    const heuristicCosts = candidates.map(candidate => candidate ? runScenario(candidate).strategies.ruleBased.adjustedCost : null);
     const optimizedCosts: (number | null)[] = [];
     const optimizationStatuses: string[] = [];
-    for (const factor of factors) {
-      const candidate = validateScenario({ ...scenario, batteryKWh: scenario.batteryKWh * factor, batteryKW: scenario.batteryKW * factor });
+    for (const candidate of candidates) {
+      if (!candidate) { optimizedCosts.push(null); optimizationStatuses.push('Outside supported capacity range'); continue; }
+      const cached = runCache.get(JSON.stringify(candidate));
+      if (cached && cached.until > Date.now() && cached.result.strategies.optimized) {
+        optimizedCosts.push(cached.result.strategies.optimized.totalCost);
+        optimizationStatuses.push('Optimal · independently verified · cached');
+        continue;
+      }
       const solved = await solveDispatch(candidate);
       const verified = solved.status === 'Optimal' && verifyDispatch(candidate, solved.intervals);
       optimizedCosts.push(verified ? solved.intervals.reduce((sum, row) => sum + row.cost, 0) : null);
       optimizationStatuses.push(verified ? 'Optimal · independently verified' : solved.status);
     }
     res.json({ factors, heuristicCosts, optimizedCosts, optimizationStatuses });
-  } catch (e) { res.status(e instanceof Error && e.name === 'ZodError' ? 400 : 503).json({ error: e instanceof Error ? e.message : 'Sensitivity unavailable.' }); }
+  } catch (e) { res.status(e instanceof ScenarioInputError || e instanceof Error && e.name === 'ZodError' ? 400 : 503).json({ error: e instanceof Error ? e.message : 'Sensitivity unavailable.' }); }
   finally { active--; }
 });
 app.post('/api/data/eia', async (req, res) => {
