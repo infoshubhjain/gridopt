@@ -2,7 +2,7 @@
 
 GridOpt is an educational microgrid planning demonstrator. **Live demo:** [gridopt.vercel.app](https://gridopt.vercel.app/). It compares a no-storage baseline, a transparent heuristic, and a constrained battery optimizer using the same hourly or subhourly scenario. It does not control grid equipment, submit market offers, or provide engineering or investment recommendations.
 
-![GridOpt dashboard screenshot](docs/screenshot.png)
+![GridOpt dispatch workbench screenshot](docs/screenshot.png)
 
 [Mobile workflow screenshot](docs/screenshots/mobile.png)
 
@@ -21,12 +21,12 @@ Copy `.env.example` to `.env` only if you want to set an EIA key or deployment v
 
 ## Architecture and model
 
-- `src/` is a React/TypeScript responsive single-page dashboard. Charts are accessible inline SVG with text labels and units. Scenario inputs remain in browser memory; there is no account, database, or data retention.
+- `src/` is a React/TypeScript responsive single-page dispatch workbench. Charts are accessible inline SVG with text labels and units. Scenario inputs remain in browser memory; there is no account, database, or data retention.
 - `server/index.ts` serves `/api/health`, `/api/scenarios/demo`, `/api/run`, `/api/sensitivity`, and `/api/data/eia`, applies request limits and security headers, and serves the built client. Independently verified `/api/run` results have a 16-entry, five-minute process-local cache keyed by the validated scenario; the `X-GridOpt-Cache` response header reports `HIT` or `MISS`. Cold starts and changed scenarios still run the optimizer.
 - `server/model.ts` validates the scenario and computes the baseline/heuristic; `server/optimizer.ts` builds and solves the bounded HiGHS mixed-integer model in a worker thread, keeping the API responsive. Results are checked against independently recomputed interval balance and SOC feasibility.
 - GridOpt compares a deterministic rule-based heuristic with a genuine HiGHS mixed-integer linear program (MILP). The MILP chooses time-indexed charge/discharge, import/export, curtailment, and state-of-charge decisions; binary modes prevent simultaneous battery charge/discharge and grid import/export. It minimizes import cost net of export revenue under interval balance, efficiency, battery power/energy, reserve, and terminal-SOC-equals-initial constraints. HiGHS must report `Optimal` before the app labels a result optimal; other solver states are shown without a fabricated schedule. The known horizon is not a forecast.
 - Solver and license: `highs` runs HiGHS locally as WebAssembly; HiGHS is MIT licensed. The existing rule-based dispatch remains as a benchmark.
-- The initial SOC is set as a share of energy capacity and must meet the reserve. The optimizer constrains terminal SOC to equal initial SOC, so its raw energy objective needs no inventory adjustment. The heuristic allows a different ending SOC and is normalized to initial inventory at the final tariff as an illustrative accounting comparison. Its adjusted cost is not directly comparable as a proven optimality gap with the constrained optimum. The dashboard shows ending SOC for all strategies and a negative baseline-minus-heuristic difference as a cost increase. That proxy ignores degradation and market settlement details.
+- The initial SOC is set as a share of energy capacity and must meet the reserve. The optimizer constrains terminal SOC to equal initial SOC, so its raw energy objective needs no inventory adjustment. The heuristic allows a different ending SOC and is normalized to initial inventory at the final tariff as an illustrative accounting comparison. Its adjusted cost is not directly comparable as a proven optimality gap with the constrained optimum. The workbench shows ending SOC for all strategies and a negative baseline-minus-heuristic difference as a cost increase. That proxy ignores degradation and market settlement details.
 
 ### Units and constraints
 

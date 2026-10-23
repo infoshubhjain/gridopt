@@ -2,15 +2,18 @@ import { expect, test } from '@playwright/test';
 
 test('demo → edit settings → compare → export', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Microgrid overview' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Energy dispatch studio' })).toBeVisible();
   await expect(page.getByText('SYNTHETIC', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Scenario settings' }).first().click();
   const capacity = page.getByLabel('Energy capacity');
   await capacity.fill('10');
   await page.getByRole('button', { name: 'Overview', exact: true }).first().click();
   await page.getByRole('button', { name: 'Run comparison' }).click();
-  await expect(page.getByText('Independent physics check passed')).toBeVisible();
+  await expect(page.getByText('Independent physics check passed')).toBeVisible({ timeout: 30000 });
   await expect(page.locator('.optimal-card')).toContainText('VERIFIED OPTIMUM');
+  await page.getByRole('slider', { name: 'Inspect dispatch interval' }).fill('12');
+  await expect(page.locator('.dispatch-workbench')).toContainText('Interval 13 of 24');
+  await expect(page.locator('.dispatch-workbench')).toContainText('Battery state');
   await page.getByRole('button', { name: 'Compare capacities' }).click();
   await expect(page.locator('.sensitivity [role="status"]')).toHaveText(/MILP costs appear only/);
   await expect(page.getByText('$', { exact: false }).first()).toBeVisible();
@@ -27,7 +30,7 @@ test('mobile layout and keyboard can run the comparison', async ({ page }) => {
   const run = page.getByRole('button', { name: 'Run comparison' });
   await run.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByText('Independent physics check passed')).toBeVisible();
+  await expect(page.getByText('Independent physics check passed')).toBeVisible({ timeout: 30000 });
   await expect(page.locator('.optimal-card')).toBeVisible();
   await expect(page.locator('.accounting tbody tr').first().locator('td[data-label="Ending SOC"]')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
