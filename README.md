@@ -1,6 +1,6 @@
 # GridOpt
 
-[Frontend release audit](docs/frontend-audit.md)
+[Frontend release audit](docs/frontend-audit.md) · [Product design brief](docs/design-brief.md)
 
 GridOpt is an educational microgrid planning demonstrator. **Live demo:** [gridopt.vercel.app](https://gridopt.vercel.app/). It compares a no-storage baseline, a transparent heuristic, and a constrained battery optimizer using the same hourly or subhourly scenario. It does not control grid equipment, submit market offers, or provide engineering or investment recommendations.
 
@@ -19,7 +19,7 @@ npm run dev
 
 Open http://localhost:5173. The seeded example works without an account, API key, or external service. For production-style local preview, run `npm run build && npm start` and open http://localhost:3000.
 
-After running a comparison, use the workbench's strategy buttons to switch between the verified optimal and rule-based schedules. The interval values, energy profile, and battery state-of-charge chart all follow that choice.
+After running a comparison, use the workbench's strategy buttons to switch between the verified optimal and rule-based schedules. Scrub the interval slider or click the energy profile; both charts mark the inspected interval and follow the chosen strategy.
 
 Copy `.env.example` to `.env` only if you want to set an EIA key or deployment values. The app never needs a key to run its synthetic example. `TRUST_PROXY_HOPS` defaults to `0`, so forwarded client addresses are ignored; set it to the exact number of trusted reverse-proxy hops only when deployment traffic cannot bypass those proxies. Do not commit `.env` or put API keys in source control.
 

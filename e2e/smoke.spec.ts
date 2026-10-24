@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 test('demo → edit settings → compare → export', async ({ page }) => {
+  const pageErrors:string[] = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Energy dispatch studio' })).toBeVisible();
   await expect(page.getByText('SYNTHETIC', { exact: true })).toBeVisible();
@@ -27,6 +29,14 @@ test('demo → edit settings → compare → export', async ({ page }) => {
   await expect(page.locator('.dispatch-node.battery strong')).toHaveText(battery('ruleBased'));
   await expect(page.locator('.chart-panel').first()).toContainText('Rule-based schedule');
   await expect(page.locator('.strategy-switch [aria-pressed="true"]')).toHaveText('Rule-based');
+  const profile = page.locator('.chart-panel').first().locator('svg');
+  const marker = profile.locator('.selected-interval-line');
+  const oldX = await marker.getAttribute('x1');
+  const bounds = (await profile.boundingBox())!;
+  await profile.click({ position: { x: bounds.width * 0.7, y: bounds.height / 2 } });
+  expect(Number(await page.getByRole('slider', { name: 'Inspect dispatch interval' }).inputValue())).toBeGreaterThan(12);
+  await expect(marker).not.toHaveAttribute('x1', oldX!);
+  await expect(page.locator('.selected-interval-line')).toHaveCount(2);
   await page.getByRole('button', { name: 'Compare capacities' }).click();
   await expect(page.locator('.sensitivity [role="status"]')).toHaveText(/MILP costs appear only/);
   await expect(page.getByText('$', { exact: false }).first()).toBeVisible();
@@ -35,6 +45,7 @@ test('demo → edit settings → compare → export', async ({ page }) => {
   await page.getByRole('button', { name: 'Export results' }).click();
   const download = await downloadEvent;
   expect(download.suggestedFilename()).toBe('gridopt-scenario.json');
+  expect(pageErrors).toEqual([]);
 });
 
 test('mobile layout and keyboard can run the comparison', async ({ page }) => {
